@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GrooveLab — La machine à backing tracks</title>
+<meta name="description" content="Atelier d'impro génératif : grilles d'accords, groove, basse et piano qui tournent dans ton navigateur. Branche ta guitare et joue.">
+<meta name="theme-color" content="#100e0d">
+<!-- Carte de partage (réseaux / Discord). Remplace l'URL og:image par la tienne quand tu déploies. -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="GrooveLab — atelier d'impro génératif">
+<meta property="og:description" content="Des backing tracks infinies dans ton navigateur. Choisis un style, lance, improvise.">
+<meta name="twitter:card" content="summary_large_image">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <style>
   :root{
@@ -123,9 +130,45 @@
   footer{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
     text-align:center;padding:6px 0 14px}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  /* ===== Bouton Play en attente de chargement ===== */
+  button.primary[disabled],button.primary.loading{
+    background:var(--panel-2);color:var(--muted);border-color:var(--line);
+    cursor:progress;filter:none;letter-spacing:.14em}
+  button.primary.loading:hover{filter:none;color:var(--muted)}
+
+  /* ===== PRELOADER (écran studio) ===== */
+  #preloader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(900px 480px at 50% 34%,#241d15 0%,#0a0908 62%),#070605;
+    transition:opacity .55s ease;padding:24px}
+  #preloader.hide{opacity:0;pointer-events:none}
+  .pl-inner{display:flex;flex-direction:column;align-items:center;gap:16px;max-width:380px;width:100%;text-align:center}
+  .pl-logo{font-size:30px;letter-spacing:.3em;text-transform:uppercase;font-weight:700;color:var(--cream)}
+  .pl-logo em{color:var(--amber);font-style:normal;text-shadow:0 0 26px rgba(255,179,71,.45)}
+  .pl-sub{font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+  .pl-barwrap{width:100%;height:7px;border-radius:99px;background:#1c1714;overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.7),0 0 0 1px var(--line)}
+  .pl-bar{height:100%;width:0%;border-radius:99px;
+    background:linear-gradient(90deg,var(--amber-deep),var(--amber));
+    box-shadow:0 0 12px rgba(255,179,71,.6);transition:width .25s ease}
+  .pl-pct{font-family:var(--mono);font-size:13px;color:var(--amber);letter-spacing:.1em}
+  .pl-msg{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);min-height:1em}
+  .pl-tip{font-size:11px;color:var(--violet);font-style:italic;letter-spacing:.04em;margin-top:8px;min-height:2.4em;line-height:1.4}
 </style>
 </head>
 <body>
+<!-- ===== PRELOADER : l'utilisateur sait que le studio se charge ===== -->
+<div id="preloader">
+  <div class="pl-inner">
+    <div class="pl-logo">Groove<em>Lab</em></div>
+    <div class="pl-sub">atelier d'impro génératif</div>
+    <div class="pl-barwrap"><div class="pl-bar" id="plBar"></div></div>
+    <div class="pl-pct" id="plPct">0%</div>
+    <div class="pl-msg" id="plMsg">Chauffage des amplis…</div>
+    <div class="pl-tip" id="plTip"></div>
+  </div>
+</div>
+
 <div class="rig">
 
   <header>
@@ -137,7 +180,7 @@
     <div class="row" style="display: flex; align-items: center; gap: 10px;">
       <button id="diceBtn" class="magic-btn" title="Génère une session par harmonie fonctionnelle">🎲 Inspire-moi</button>
       <button id="tapBtn" class="ghost" title="Tape le tempo">Tap</button>
-      <button id="playBtn" class="primary">▶ &nbsp;Jouer</button>
+      <button id="playBtn" class="primary loading" disabled>⏳ Chargement…</button>
       
       <!-- Bloc d'alignement pour ton bouton Buy Me a Coffee -->
       <div style="height: 36px; display: flex; align-items: center;">
@@ -349,10 +392,11 @@
         <div class="field"><label for="shareCode">Code de session</label>
           <input type="text" id="shareCode" placeholder="Génère ou colle un code ici"></div>
         <div class="row">
-          <button id="genCode" class="tiny">Générer & copier</button>
-          <button id="loadCode" class="tiny">Charger le code</button>
+          <button id="shareLink" class="tiny" style="border-color:var(--amber-deep);color:var(--amber)">🔗 Copier le lien</button>
+          <button id="genCode" class="tiny">Code seul</button>
+          <button id="loadCode" class="tiny">Charger un code</button>
         </div>
-        <div class="hint">Le code contient tout — grille, sons, voicing, tempo, intensité… Envoie-le à un autre musicien, il retrouve ta session à l'identique.</div>
+        <div class="hint">Le <b>lien</b> contient toute ta session — grille, sons, voicing, tempo, intensité. Envoie-le à un autre musicien : il ouvre, et il a exactement ta session, prête à jouer. (Le « code seul » sert si tu préfères coller à la main.)</div>
       </section>
     </div>
   </div>
@@ -366,6 +410,16 @@
    Sections : Théorie · Voice-leading · Styles · Banque d'accords ·
    Sonothèque · Générateur · Moteur · UI · Partage · Transport
    ===================================================================== */
+
+/* ============================ CONFIG ============================ */
+/* Piano réel (Salamander). Une note par octave : le Sampler interpole le reste.
+   → 9 fichiers au lieu de 30 : chargement 3× plus rapide.
+   Quand tu déploieras sur ton serveur, dépose les .mp3 dans /audio/piano/
+   et change simplement baseUrl en '/audio/piano/' (zéro dépendance externe). */
+const PIANO={
+  baseUrl:'https://tonejs.github.io/audio/salamander/',
+  urls:{'A0':'A0.mp3','C1':'C1.mp3','C2':'C2.mp3','C3':'C3.mp3','C4':'C4.mp3','C5':'C5.mp3','C6':'C6.mp3','C7':'C7.mp3','C8':'C8.mp3'}
+};
 
 /* ============================ THÉORIE ============================ */
 const NOTES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -586,8 +640,8 @@ const CHORDS={
     // vrai Steinway échantillonné (Salamander) — chargé en arrière-plan
     let ready=false;
     const samp=new Tone.Sampler({
-      urls:{'A0':'A0.mp3','C1':'C1.mp3','D#1':'Ds1.mp3','F#1':'Fs1.mp3','A1':'A1.mp3','C2':'C2.mp3','D#2':'Ds2.mp3','F#2':'Fs2.mp3','A2':'A2.mp3','C3':'C3.mp3','D#3':'Ds3.mp3','F#3':'Fs3.mp3','A3':'A3.mp3','C4':'C4.mp3','D#4':'Ds4.mp3','F#4':'Fs4.mp3','A4':'A4.mp3','C5':'C5.mp3','D#5':'Ds5.mp3','F#5':'Fs5.mp3','A5':'A5.mp3','C6':'C6.mp3','D#6':'Ds6.mp3','F#6':'Fs6.mp3','A6':'A6.mp3','C7':'C7.mp3','D#7':'Ds7.mp3','F#7':'Fs7.mp3','A7':'A7.mp3','C8':'C8.mp3'},
-      baseUrl:'https://tonejs.github.io/audio/salamander/',
+      urls:PIANO.urls,
+      baseUrl:PIANO.baseUrl,
       release:1,
       onload:()=>{ready=true;setLoadNote('');}
     }).connect(o);
@@ -909,14 +963,22 @@ function decodeSession(code){try{const d=JSON.parse(decodeURIComponent(escape(at
   S.prog=d.p.map(([r,q,b])=>({root:r,q,beats:b}));S.prevVoicing=null;renderProg();ui.sessionTitle.textContent=d.ti||'';
   if(A){buildDrums();buildBass();buildChords();buildMagic();A.plate.wet.value=S.reverb/100;A.delaySend.gain.value=S.delay/100;A.vib.depth.value=S.lofi?.06:0;}
   if(S.playing){Tone.Transport.bpm.rampTo(S.bpm,.3);Tone.Transport.swing=S.swing/100;}return true;}catch(e){return false;}}
+function shareURL(){return location.origin+location.pathname+'#s='+encodeSession();}
+$('shareLink').onclick=async()=>{const url=shareURL();
+  try{await navigator.clipboard.writeText(url);$('shareLink').textContent='Lien copié ✓';}
+  catch(e){ui.shareCode.value=url;ui.shareCode.select();$('shareLink').textContent='Ctrl+C pour copier';}
+  history.replaceState(null,'','#s='+encodeSession());
+  setTimeout(()=>$('shareLink').textContent='🔗 Copier le lien',1900);};
 $('genCode').onclick=async()=>{const code=encodeSession();ui.shareCode.value=code;
-  try{await navigator.clipboard.writeText(code);$('genCode').textContent='Copié ✓';}catch(e){ui.shareCode.select();$('genCode').textContent='Sélectionné — Ctrl+C';}
-  setTimeout(()=>$('genCode').textContent='Générer & copier',1800);};
-$('loadCode').onclick=()=>{$('loadCode').textContent=decodeSession(ui.shareCode.value)?'Chargé ✓':'Code invalide ✗';setTimeout(()=>$('loadCode').textContent='Charger le code',1800);};
+  try{await navigator.clipboard.writeText(code);$('genCode').textContent='Copié ✓';}catch(e){ui.shareCode.select();$('genCode').textContent='Ctrl+C';}
+  setTimeout(()=>$('genCode').textContent='Code seul',1800);};
+$('loadCode').onclick=()=>{let v=ui.shareCode.value.trim();if(v.indexOf('s=')>-1)v=decodeURIComponent(v.split('s=')[1]);
+  $('loadCode').textContent=decodeSession(v)?'Chargé ✓':'Code invalide ✗';setTimeout(()=>$('loadCode').textContent='Charger un code',1800);};
 
 /* ============================ TRANSPORT ============================ */
 let loopId=null;
 ui.playBtn.onclick=async()=>{
+  if(!studioReady)return;
   if(!S.playing){if(S.prog.length===0){ui.nowChord.textContent='grille ?';return;}
     await Tone.start();if(!A)buildAudio();
     S.step=0;S.countLeft=S.countIn;S.prevVoicing=null;S.arpI=0;
@@ -929,9 +991,46 @@ ui.playBtn.onclick=async()=>{
 };
 document.addEventListener('keydown',e=>{if(e.code==='Space'&&!['SELECT','INPUT','BUTTON'].includes(document.activeElement.tagName)){e.preventDefault();ui.playBtn.click();}});
 
+/* ============================ PRELOADER ============================ */
+let studioReady=false;
+const PL_TIPS=[
+  'Astuce : la barre Espace lance et arrête la lecture.',
+  '🎲 « Inspire-moi » génère une grille harmoniquement cohérente.',
+  'Tape le tempo avec « Tap » pour caler ton feeling.',
+  'Le voicing « Auto » enchaîne les accords avec un vrai voice-leading.',
+  'Partage le lien de ta session : ton pote la retrouve à l\'identique.'
+];
+async function preloadStudio(){
+  const bar=$('plBar'),pct=$('plPct'),msg=$('plMsg'),tip=$('plTip');
+  let i=0;if(tip)tip.textContent=PL_TIPS[0];
+  const tipTimer=setInterval(()=>{i=(i+1)%PL_TIPS.length;if(tip)tip.textContent=PL_TIPS[i];},2200);
+  const urls=Object.values(PIANO.urls).map(f=>PIANO.baseUrl+f);
+  let done=0;const total=urls.length||1;
+  const upd=()=>{const p=Math.round(done/total*100);if(bar)bar.style.width=p+'%';if(pct)pct.textContent=p+'%';};
+  await Promise.all(urls.map(async u=>{
+    try{const r=await fetch(u,{mode:'cors'});await r.blob();}      // met le sample en cache → lecture instantanée ensuite
+    catch(e){/* hors-ligne : repli synthé automatique, on n'empêche pas l'entrée */}
+    done++;upd();
+  }));
+  clearInterval(tipTimer);
+  if(bar)bar.style.width='100%';if(pct)pct.textContent='100%';if(msg)msg.textContent='Studio prêt';
+  studioReady=true;
+  ui.playBtn.disabled=false;ui.playBtn.classList.remove('loading');ui.playBtn.innerHTML='▶ &nbsp;Jouer';
+  setTimeout(()=>{const pl=$('preloader');if(pl){pl.classList.add('hide');setTimeout(()=>pl.remove(),650);}},380);
+}
+
 /* ============================ INIT ============================ */
 ui.kitSel.value=S.kit;ui.bassSel.value=S.bassTone;ui.chordSel.value=S.chordTone;ui.magicSel.value='none';
 setStyle('blues');fillPresets();applyPreset(0);updateKeyHint();setIntensityUI();startScope();
+
+/* Session reçue par lien (#s=...) : on la charge par-dessus le préréglage par défaut */
+(function(){const h=location.hash;if(h&&h.indexOf('s=')>-1){
+  try{const code=decodeURIComponent(h.split('s=')[1]);
+    if(decodeSession(code)){setLoadNote('session partagée chargée ✓');setTimeout(()=>setLoadNote(''),2600);}}catch(e){}
+}})();
+
+/* On lance le préchargement du studio */
+preloadStudio();
 </script>
 </body>
 </html>
