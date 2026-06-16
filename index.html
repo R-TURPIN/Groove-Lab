@@ -12,6 +12,7 @@
 <meta property="og:description" content="Des backing tracks infinies dans ton navigateur. Choisis un style, lance, improvise.">
 <meta name="twitter:card" content="summary_large_image">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js" onerror="window.__noMidi=true"></script>
 <style>
   :root{
     --bg:#100e0d;--panel:#1c1815;--panel-2:#25201b;--line:#39322a;
@@ -55,6 +56,10 @@
   .scales .tag.hot{border-color:var(--amber-deep);color:var(--amber)}
   .bar-pos{font-family:var(--mono);font-size:12px;color:var(--muted)}
   .loadnote{font-size:10px;color:var(--violet);letter-spacing:.08em;min-height:1em;position:relative;z-index:2;margin-top:4px}
+  .snd-status{font-family:var(--mono);font-size:9px;letter-spacing:.04em;font-weight:400;text-transform:none}
+  .snd-status.ok{color:var(--led-green)}
+  .snd-status.load{color:var(--amber)}
+  .snd-status.fb{color:var(--red)}
   .grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px}
   @media(max-width:860px){.grid{grid-template-columns:1fr}}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
@@ -180,7 +185,7 @@
     <div class="row" style="display: flex; align-items: center; gap: 10px;">
       <button id="diceBtn" class="magic-btn" title="Génère une session par harmonie fonctionnelle">🎲 Inspire-moi</button>
       <button id="tapBtn" class="ghost" title="Tape le tempo">Tap</button>
-      <button id="playBtn" class="primary loading" disabled>⏳ Chargement…</button>
+      <button id="playBtn" class="primary">▶ &nbsp;Jouer</button>
       
       <!-- Bloc d'alignement pour ton bouton Buy Me a Coffee -->
       <div style="height: 36px; display: flex; align-items: center;">
@@ -275,6 +280,9 @@
               <option value="fifth">Fonda + quinte</option>
               <option value="octave">Octaves</option>
               <option value="walking">Walking</option>
+              <option value="reggae_drop">Reggae · Riddim Dropper</option>
+              <option value="reggae_skank">Reggae · Syncopated Skank</option>
+              <option value="reggae_walk">Reggae · Walking</option>
             </select>
           </div>
         </div>
@@ -285,15 +293,15 @@
         <h2>Sonothèque (le grain)</h2>
         <div class="sndgrid">
           <div class="sndrow">
-            <div class="field"><label for="kitSel">Kit batterie</label><select id="kitSel"></select></div>
+            <div class="field"><label for="kitSel">Kit batterie <span class="snd-status" id="stKit"></span></label><select id="kitSel"></select></div>
             <button class="aud-btn" data-aud="drums">▶</button>
           </div>
           <div class="sndrow">
-            <div class="field"><label for="bassSel">Son de basse</label><select id="bassSel"></select></div>
+            <div class="field"><label for="bassSel">Son de basse <span class="snd-status" id="stBass"></span></label><select id="bassSel"></select></div>
             <button class="aud-btn" data-aud="bass">▶</button>
           </div>
           <div class="sndrow">
-            <div class="field"><label for="chordSel">Son d'accords</label><select id="chordSel"></select></div>
+            <div class="field"><label for="chordSel">Son d'accords <span class="snd-status" id="stChord"></span></label><select id="chordSel"></select></div>
             <button class="aud-btn" data-aud="chords">▶</button>
           </div>
           <div class="sndrow">
@@ -393,10 +401,11 @@
           <input type="text" id="shareCode" placeholder="Génère ou colle un code ici"></div>
         <div class="row">
           <button id="shareLink" class="tiny" style="border-color:var(--amber-deep);color:var(--amber)">🔗 Copier le lien</button>
+          <button id="midiBtn" class="tiny" title="Exporter en .mid pour GarageBand, Logic, Ableton…">⬇ MIDI</button>
           <button id="genCode" class="tiny">Code seul</button>
           <button id="loadCode" class="tiny">Charger un code</button>
         </div>
-        <div class="hint">Le <b>lien</b> contient toute ta session — grille, sons, voicing, tempo, intensité. Envoie-le à un autre musicien : il ouvre, et il a exactement ta session, prête à jouer. (Le « code seul » sert si tu préfères coller à la main.)</div>
+        <div class="hint">Le <b>lien</b> contient toute ta session — grille, sons, voicing, tempo, intensité. Envoie-le à un autre musicien : il ouvre, et il a exactement ta session, prête à jouer. Le bouton <b>MIDI</b> exporte la grille, la basse et la batterie en <code>.mid</code> standard : glisse-le dans ton DAW pour l'éditer avec tes propres instruments.</div>
       </section>
     </div>
   </div>
@@ -446,9 +455,10 @@ function buildVoicing(chord,prevMidi,style){
   if(style==='open'){voiced=voiced.map((m,i)=>i%2===1?m+12:m);}              // élargit
   else if(style==='drop2'&&voiced.length>=3){const s=[...voiced].sort((a,b)=>a-b);
     const idx=voiced.indexOf(s[s.length-2]);voiced[idx]-=12;}               // 2e voix -1 octave
-  // garde le registre central
-  const avg=voiced.reduce((a,b)=>a+b,0)/voiced.length;
-  if(avg<52)voiced=voiced.map(m=>m+12);if(avg>76)voiced=voiced.map(m=>m-12);
+  // garde-fou géométrique : CHAQUE note reste dans E3 (52) .. A5 (81).
+  // si une note sort, elle seule est repliée d'une octave (pas tout l'accord),
+  // ce qui évite les infrabasses inaudibles et les "clics" d'attaque dans l'aigu.
+  voiced=voiced.map(m=>{while(m<52)m+=12;while(m>81)m-=12;return m;});
   return voiced;
 }
 function arpFromVoicing(voiced){const s=[...voiced].sort((a,b)=>a-b);return [...s,...s.map(m=>m+12)];}
@@ -632,6 +642,16 @@ const BASS={
 /* ---- accords : synthés + UN sampler réel (Salamander) avec repli ---- */
 function polyChord(o,inst,opt,vol=.5){const p=new Tone.PolySynth(inst,opt);p.maxPolyphony=18;p.connect(o);
   return {play:(n,d,t,v=vol)=>p.triggerAttackRelease(n,d,t,v),dispose:()=>p.dispose()};}
+/* Karplus-Strong (corde pincée) : Tone.PluckSynth n'est pas un voice PolySynth,
+   on gère donc un pool de voix monophoniques en round-robin pour la polyphonie. */
+function pluckVoice(o,opt,vol=.55,N=6){
+  const g=new Tone.Gain(1).connect(o);
+  const voices=[];for(let i=0;i<N;i++)voices.push(new Tone.PluckSynth(opt).connect(g));
+  let idx=0;
+  return {play:(notes,d,t,v=vol)=>{(Array.isArray(notes)?notes:[notes]).forEach(n=>{
+      const pv=voices[idx%N];idx++;try{pv.volume.value=Tone.gainToDb(Math.max(.05,Math.min(1,v)));}catch(e){}
+      pv.triggerAttack(n,t);});},
+    dispose:()=>{voices.forEach(x=>x.dispose());g.dispose();}};}
 const CHORDS={
   grand:{label:'Grand Piano (réel)',sampled:true,make(o){
     // repli synthé immédiat
@@ -639,20 +659,24 @@ const CHORDS={
     fb.maxPolyphony=18;fb.connect(o);
     // vrai Steinway échantillonné (Salamander) — chargé en arrière-plan
     let ready=false;
+    sampleState.chords='load';updateSndStatus();
     const samp=new Tone.Sampler({
       urls:PIANO.urls,
       baseUrl:PIANO.baseUrl,
       release:1,
-      onload:()=>{ready=true;setLoadNote('');}
+      onload:()=>{ready=true;sampleState.chords='ready';updateSndStatus();setLoadNote('');},
+      onerror:()=>{sampleState.chords='fb';updateSndStatus();setLoadNote('piano réel indisponible — repli synthé actif');}
     }).connect(o);
+    // garde-fou : si rien n'est chargé au bout de 9 s, on signale le repli (le synthé joue déjà)
+    setTimeout(()=>{if(!ready){sampleState.chords='fb';updateSndStatus();}},9000);
     setLoadNote('chargement du piano réel… (repli synthé en attendant)');
     return {play:(n,d,t,v=.6)=>(ready?samp:fb).triggerAttackRelease(n,d,t,v),
       dispose:()=>{try{samp.dispose();}catch(e){}fb.dispose();}};}},
   rhodes:{label:'Rhodes (EP)',make(o){return polyChord(o,Tone.FMSynth,{harmonicity:3,modulationIndex:7,oscillator:{type:'sine'},envelope:{attack:.005,decay:.7,sustain:.2,release:.6},modulation:{type:'sine'},modulationEnvelope:{attack:.01,decay:.4,sustain:.1,release:.3}},.5);}},
   piano:{label:'Piano (synthé)',make(o){return polyChord(o,Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:.003,decay:.6,sustain:.08,release:.5}},.5);}},
   organ:{label:'Orgue',make(o){return polyChord(o,Tone.Synth,{oscillator:{type:'fatsine',count:2,spread:8},envelope:{attack:.02,decay:.1,sustain:.9,release:.2}},.45);}},
-  guitar:{label:'Guitare clean',make(o){return polyChord(o,Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:.004,decay:.8,sustain:.04,release:.4}},.55);}},
-  nylon:{label:'Guitare nylon',make(o){return polyChord(o,Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:.006,decay:.9,sustain:.02,release:.5}},.55);}},
+  guitar:{label:'Guitare clean',make(o){return pluckVoice(o,{attackNoise:1.3,dampening:3600,resonance:.93,release:1},.6);}},
+  nylon:{label:'Guitare nylon',make(o){return pluckVoice(o,{attackNoise:.7,dampening:1700,resonance:.95,release:1},.6);}},
   pad:{label:'Nappe (pad)',make(o){return polyChord(o,Tone.Synth,{oscillator:{type:'fatsawtooth',count:2,spread:18},envelope:{attack:.4,decay:.3,sustain:.7,release:1.2}},.4);}},
   brass:{label:'Cuivres (stab)',make(o){return polyChord(o,Tone.Synth,{oscillator:{type:'sawtooth'},envelope:{attack:.01,decay:.3,sustain:.3,release:.2}},.5);}},
   bells:{label:'Cloches / célesta',make(o){return polyChord(o,Tone.FMSynth,{harmonicity:8,modulationIndex:2,oscillator:{type:'sine'},envelope:{attack:.001,decay:1.4,sustain:0,release:1},modulationEnvelope:{attack:.001,decay:.5,sustain:0,release:.5}},.45);}},
@@ -710,7 +734,7 @@ function buildAudio(){
 }
 function buildDrums(){if(!A)return;if(A.drumDispose)A.drumDispose();const v=DRUMKITS[S.kit].make(A.bus.drums);A.kick=v.kick;A.snare=v.snare;A.hat=v.hat;A.drumDispose=v.dispose;}
 function buildBass(){if(!A)return;if(A.bassDispose)A.bassDispose();const v=BASS[S.bassTone].make(A.bus.bass);A.bassV=v;A.bassDispose=v.dispose;}
-function buildChords(){if(!A)return;if(A.chordDispose)A.chordDispose();const v=CHORDS[S.chordTone].make(A.bus.chords);A.chordsV=v;A.chordDispose=v.dispose;if(!CHORDS[S.chordTone].sampled)setLoadNote('');}
+function buildChords(){if(!A)return;if(A.chordDispose)A.chordDispose();const v=CHORDS[S.chordTone].make(A.bus.chords);A.chordsV=v;A.chordDispose=v.dispose;if(!CHORDS[S.chordTone].sampled){sampleState.chords='synth';setLoadNote('');}updateSndStatus();}
 function buildMagic(){if(!A)return;if(A.magicDispose){A.magicDispose();A.magicDispose=null;A.magicV=null;}if(S.magicTone!=='none'){const v=MAGIC[S.magicTone].make(A.bus.magic);A.magicV=v;A.magicDispose=v.dispose;}}
 
 /* ---- oscilloscope ---- */
@@ -773,6 +797,19 @@ function tick(time){
     else if(mode==='root'){if(isStart){A.bassV.note(rootMidi+'2',beatSec*chord.beats*.95,time,.85);}}
     else if(mode==='fifth'){if(sx%4===0){const fifth=(bib%2===1);A.bassV.note(Tone.Frequency(rootMidi+'2').transpose(fifth?7:0).toNote(),'4n',ht(),hv(.85));}}
     else if(mode==='octave'){if(sx%2===0){const up=(sx/2)%2===1;A.bassV.note(rootMidi+(up?'3':'2'),'8n',ht(),hv(.85));}}
+    else if(mode==='reggae_drop'){ // Riddim Dropper : note lourde et longue calée sur le kick au temps 3 + relance au "et" du 4
+      if(sx===8)A.bassV.note(rootMidi+'1',beatSec*1.6,ht(),hv(1));            // synchro one-drop, étouffée et grave
+      else if(sx===14)A.bassV.note(rootMidi+'2',beatSec*.4,ht(),hv(.7));      // petite relance vers la mesure suivante
+    }
+    else if(mode==='reggae_skank'){ // Syncopated Skank : uniquement sur les contretemps, dialogue avec les accords
+      if(sx===2||sx===6||sx===10||sx===14){const t5=QUALITIES[chord.q].iv[2]||7;const pc=(sx===6||sx===14)?t5:0;
+        A.bassV.note(Tone.Frequency(rootMidi+'2').transpose(pc).toNote(),'8n',ht(),hv(.8));}
+    }
+    else if(mode==='reggae_walk'){ // Walking Reggae : lente, chromatismes reliant les fondamentales
+      if(sx===0)A.bassV.note(rootMidi+'2',beatSec*1.5,ht(),hv(.85));
+      else if(sx===8){const next=S.prog[(ci+1)%S.prog.length];const appr=((next.root-1)%12+12)%12; // approche chromatique
+        A.bassV.note(Tone.Frequency(NOTES[appr]+'2').toNote(),beatSec*1.5,ht(),hv(.8));}
+    }
     else{const off=sd.bass==='walking'?null:sd.bass[sx];if(off!=null){const n=chord.root+off;A.bassV.note(Tone.Frequency(NOTES[((n%12)+12)%12]+(off>=12?'3':'2')).toNote(),'8n',ht(),hv(.9));}}
   }
 
@@ -812,6 +849,19 @@ function tick(time){
 /* ============================ UI ============================ */
 const $=id=>document.getElementById(id);
 function setLoadNote(t){const el=$('loadNote');if(el)el.textContent=t;}
+/* ---- Statut dynamique de la sonothèque (LED par instrument) ---- */
+const sampleState={chords:'synth'};   // 'synth' | 'load' | 'ready' | 'fb'
+function setStatusEl(id,cls,txt){const el=$(id);if(!el)return;el.className='snd-status '+cls;el.textContent=txt;}
+function updateSndStatus(){
+  setStatusEl('stKit','ok','🟢 synthé');
+  setStatusEl('stBass','ok','🟢 synthé');
+  if(S.chordTone==='grand'){
+    if(sampleState.chords==='load')setStatusEl('stChord','load','⏳ décodage…');
+    else if(sampleState.chords==='ready')setStatusEl('stChord','ok','🟢 échantillonné');
+    else if(sampleState.chords==='fb')setStatusEl('stChord','fb','⚠️ repli synthé');
+    else setStatusEl('stChord','load','⏳ décodage…');
+  }else setStatusEl('stChord','ok','🟢 synthé');
+}
 const ui={playBtn:$('playBtn'),tapBtn:$('tapBtn'),diceBtn:$('diceBtn'),nowChord:$('nowChord'),nextChord:$('nextChord'),
   beats:[...document.querySelectorAll('.beat')],barPos:$('barPos'),scales:$('scales'),
   styleBtns:$('styleBtns'),progPreset:$('progPreset'),prog:$('prog'),editor:$('editor'),
@@ -975,10 +1025,43 @@ $('genCode').onclick=async()=>{const code=encodeSession();ui.shareCode.value=cod
 $('loadCode').onclick=()=>{let v=ui.shareCode.value.trim();if(v.indexOf('s=')>-1)v=decodeURIComponent(v.split('s=')[1]);
   $('loadCode').textContent=decodeSession(v)?'Chargé ✓':'Code invalide ✗';setTimeout(()=>$('loadCode').textContent='Charger un code',1800);};
 
-/* ============================ TRANSPORT ============================ */
+/* ============================ EXPORT MIDI (compatible DAW) ============================ */
+function exportMidi(){
+  const btn=$('midiBtn');const NS=window.Midi;
+  if(window.__noMidi||!NS){btn.textContent='MIDI hors-ligne';setTimeout(()=>btn.textContent='⬇ MIDI',2200);return;}
+  if(!S.prog.length)return;
+  const MidiCtor=NS.Midi||NS;const midi=new MidiCtor();midi.header.setTempo(S.bpm);
+  const spb=60/S.bpm, sx16=spb/4;                 // secondes par temps / par double-croche
+  const sd=STYLES[S.style];
+  const tCh=midi.addTrack();tCh.name='Accords';
+  const tBa=midi.addTrack();tBa.name='Basse';
+  const tDr=midi.addTrack();tDr.name='Batterie';tDr.channel=9;   // canal 10 (GM percussions)
+  // --- accords (voicing + voice leading) & basse (fondamentale par temps) ---
+  let prev=null,beatCursor=0;
+  S.prog.forEach(c=>{
+    const voiced=buildVoicing(c,prev,S.voicing);prev=voiced;
+    const t0=beatCursor*spb, dur=c.beats*spb*.98;
+    voiced.forEach(m=>tCh.addNote({midi:Math.round(m),time:t0,duration:dur,velocity:.6}));
+    for(let b=0;b<c.beats;b++)tBa.addNote({midi:36+(c.root%12),time:(beatCursor+b)*spb,duration:spb*.9,velocity:.8});
+    beatCursor+=c.beats;
+  });
+  // --- batterie : pattern du style répété sur toute la longueur ---
+  const totalSx=totalBeats()*4;
+  for(let sx=0;sx<totalSx;sx++){const p=sx%16,t=sx*sx16;
+    if(sd.drums.k[p])tDr.addNote({midi:36,time:t,duration:.1,velocity:.9}); // kick
+    if(sd.drums.s[p])tDr.addNote({midi:38,time:t,duration:.1,velocity:.8}); // snare
+    if(sd.drums.h[p])tDr.addNote({midi:42,time:t,duration:.05,velocity:.5});// closed hat
+  }
+  const bytes=midi.toArray();const blob=new Blob([bytes],{type:'audio/midi'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  const title=(ui.sessionTitle.textContent||'groovelab').replace(/[^\w\-]+/g,'_').replace(/^_+|_+$/g,'')||'groovelab';
+  a.href=url;a.download=title+'.mid';document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},500);
+  btn.textContent='Exporté ✓';setTimeout(()=>btn.textContent='⬇ MIDI',1800);
+}
+$('midiBtn').onclick=exportMidi;
 let loopId=null;
 ui.playBtn.onclick=async()=>{
-  if(!studioReady)return;
   if(!S.playing){if(S.prog.length===0){ui.nowChord.textContent='grille ?';return;}
     await Tone.start();if(!A)buildAudio();
     S.step=0;S.countLeft=S.countIn;S.prevVoicing=null;S.arpI=0;
@@ -992,7 +1075,7 @@ ui.playBtn.onclick=async()=>{
 document.addEventListener('keydown',e=>{if(e.code==='Space'&&!['SELECT','INPUT','BUTTON'].includes(document.activeElement.tagName)){e.preventDefault();ui.playBtn.click();}});
 
 /* ============================ PRELOADER ============================ */
-let studioReady=false;
+let studioReady=true;   // l'app est jouable immédiatement ; les samples se chargent en tâche de fond
 const PL_TIPS=[
   'Astuce : la barre Espace lance et arrête la lecture.',
   '🎲 « Inspire-moi » génère une grille harmoniquement cohérente.',
@@ -1000,28 +1083,19 @@ const PL_TIPS=[
   'Le voicing « Auto » enchaîne les accords avec un vrai voice-leading.',
   'Partage le lien de ta session : ton pote la retrouve à l\'identique.'
 ];
-async function preloadStudio(){
+function preloadStudio(){
+  // PRELOADER NON BLOQUANT : on affiche un splash très court puis on entre.
   const bar=$('plBar'),pct=$('plPct'),msg=$('plMsg'),tip=$('plTip');
-  let i=0;if(tip)tip.textContent=PL_TIPS[0];
-  const tipTimer=setInterval(()=>{i=(i+1)%PL_TIPS.length;if(tip)tip.textContent=PL_TIPS[i];},2200);
-  const urls=Object.values(PIANO.urls).map(f=>PIANO.baseUrl+f);
-  let done=0;const total=urls.length||1;
-  const upd=()=>{const p=Math.round(done/total*100);if(bar)bar.style.width=p+'%';if(pct)pct.textContent=p+'%';};
-  await Promise.all(urls.map(async u=>{
-    try{const r=await fetch(u,{mode:'cors'});await r.blob();}      // met le sample en cache → lecture instantanée ensuite
-    catch(e){/* hors-ligne : repli synthé automatique, on n'empêche pas l'entrée */}
-    done++;upd();
-  }));
-  clearInterval(tipTimer);
+  if(tip)tip.textContent=PL_TIPS[Math.floor(Math.random()*PL_TIPS.length)];
   if(bar)bar.style.width='100%';if(pct)pct.textContent='100%';if(msg)msg.textContent='Studio prêt';
-  studioReady=true;
-  ui.playBtn.disabled=false;ui.playBtn.classList.remove('loading');ui.playBtn.innerHTML='▶ &nbsp;Jouer';
-  setTimeout(()=>{const pl=$('preloader');if(pl){pl.classList.add('hide');setTimeout(()=>pl.remove(),650);}},380);
+  setTimeout(()=>{const pl=$('preloader');if(pl){pl.classList.add('hide');setTimeout(()=>pl.remove(),650);}},420);
+  // réchauffe le cache du piano réel en arrière-plan (jamais bloquant ; échec = repli synthé)
+  try{Object.values(PIANO.urls).forEach(f=>fetch(PIANO.baseUrl+f,{mode:'cors'}).catch(()=>{}));}catch(e){}
 }
 
 /* ============================ INIT ============================ */
 ui.kitSel.value=S.kit;ui.bassSel.value=S.bassTone;ui.chordSel.value=S.chordTone;ui.magicSel.value='none';
-setStyle('blues');fillPresets();applyPreset(0);updateKeyHint();setIntensityUI();startScope();
+setStyle('blues');fillPresets();applyPreset(0);updateKeyHint();setIntensityUI();startScope();updateSndStatus();
 
 /* Session reçue par lien (#s=...) : on la charge par-dessus le préréglage par défaut */
 (function(){const h=location.hash;if(h&&h.indexOf('s=')>-1){
